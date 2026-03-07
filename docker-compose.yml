@@ -1,57 +1,24 @@
-version: "3.9"
-
-# ============================================================
-# Pipeline 3D: CloudCompare → PyMeshLab → Instant Meshes
-# ============================================================
-#
-# USO RÁPIDO:
-#   1. Coloque seu arquivo .laz na pasta ./input/
-#   2. Configure INPUT_FILE abaixo (ou via .env)
-#   3. Execute: docker compose up
-#   4. Resultados estarão em ./output/
-#
-# ============================================================
-
 services:
   pipeline-3d:
     build:
-      context: .
+      context: .R
       dockerfile: Dockerfile
-
     image: pipeline-3d:latest
-
     container_name: pipeline-3d
-
-    # Variáveis de configuração
     environment:
-      # Nome do arquivo .laz dentro de ./input/
-      INPUT_FILE: "GoPro_ensenada.laz"
-
-      # Parâmetros do Instant Meshes
+      INPUT_FILE: "1-points_RGB.laz"
       TARGET_VERTICES: "80000"
-
-      # Parâmetros do Screened Poisson (PyMeshLab)
       POISSON_DEPTH: "10"
-
-      # Parâmetros do SOR (CloudCompare)
       SOR_NEIGHBORS: "20"
       SOR_STD: "1.5"
-
-      # Subsampling espacial em metros (CloudCompare)
       SPATIAL_SUBSAMPLE: "0.5"
-
-    # Volumes
     volumes:
-      - ./input:/pipeline/input:ro      
-      - ./output:/pipeline/output:rw    
-
-    # Recursos
+      - ./input:/pipeline/input:ro
+      - ./output:/pipeline/output:rw
     deploy:
       resources:
         limits:
-          memory: 16G      # Poisson intensivo em RAM
+          memory: 16G
         reservations:
           memory: 4G
-
-    # Mantém o container após finalizar para inspeção dos logs
     restart: "no"

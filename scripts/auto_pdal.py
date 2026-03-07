@@ -1,21 +1,26 @@
 """
-Passo 1/3 — PDAL
-Substitui o CloudCompare para leitura de .laz.
-Operações equivalentes:
-  - Statistical Outlier Removal (SOR)  → filters.outlier
-  - Cálculo de normais                 → filters.normal
-  - Subsampling espacial               → filters.voxeldownsize
-Exporta a nuvem de pontos como .ply.
+Passo 1/3 — PDAL CLI
+Gera um pipeline JSON e executa via `pdal pipeline`.
+Sem dependência de binding Python — usa apenas o binário pdal do sistema.
+
+Operações:
+  - readers.las       → lê .laz/.las com LASzip nativo
+  - filters.outlier   → Statistical Outlier Removal (SOR)
+  - filters.range     → remove pontos marcados como noise
+  - filters.voxeldownsize → subsampling espacial
+  - filters.normal    → calcula normais
+  - writers.ply       → exporta PLY com X,Y,Z,RGB,Normais
 """
 
-import pdal
+import subprocess
 import json
 import argparse
 import os
+import tempfile
 
 
 def run_pdal(input_laz, output_ply, sor_neighbors=20, sor_std=1.5, spatial=0.5):
-    print(f"\n[1/3] Executando PDAL...")
+    print(f"\n[1/3] Executando PDAL CLI...")
     print(f"      Entrada : {input_laz}")
     print(f"      Saída   : {output_ply}")
     print(f"      SOR     : vizinhos={sor_neighbors}, std={sor_std}")
@@ -23,48 +28,30 @@ def run_pdal(input_laz, output_ply, sor_neighbors=20, sor_std=1.5, spatial=0.5):
 
     os.makedirs(os.path.dirname(output_ply), exist_ok=True)
 
-    # ------------------------------------------------------------------
-    # Pipeline PDAL em JSON
-    # Ordem: lê LAZ → SOR → voxel downsample → normais → escreve PLY
-    # ------------------------------------------------------------------
-    pipeline_def = {
+    pipeline = {
         "pipeline": [
-            # 1. Leitura do LAZ (LASzip nativo no PDAL)
             {
                 "type": "readers.las",
                 "filename": input_laz
             },
-
-            # 2. Statistical Outlier Removal
-            #    mean_k  = número de vizinhos (equivalente ao SOR do CloudCompare)
-            #    multiplier = multiplicador do desvio padrão
             {
                 "type": "filters.outlier",
                 "method": "statistical",
                 "mean_k": sor_neighbors,
                 "multiplier": sor_std
             },
-
-            # 3. Remove os pontos marcados como outliers pelo filtro acima
             {
                 "type": "filters.range",
-                "limits": "Classification![7:7]"  # 7 = noise/outlier no padrão LAS
+                "limits": "Classification![7:7]"
             },
-
-            # 4. Subsampling espacial (Voxel Grid)
-            #    cell = tamanho da célula em metros
             {
                 "type": "filters.voxeldownsize",
                 "cell": spatial
             },
-
-            # 5. Cálculo de normais (knn=10, equivalente ao CloudCompare)
             {
                 "type": "filters.normal",
                 "knn": 10
             },
-
-            # 6. Exporta como PLY com todos os campos
             {
                 "type": "writers.ply",
                 "filename": output_ply,
@@ -74,29 +61,40 @@ def run_pdal(input_laz, output_ply, sor_neighbors=20, sor_std=1.5, spatial=0.5):
         ]
     }
 
-    pipeline_json = json.dumps(pipeline_def)
+    # Escreve o JSON num arquivo temporário e passa para `pdal pipeline`
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(pipeline, f, indent=2)
+        pipeline_file = f.name
 
-    print("[*] Executando pipeline PDAL (SOR + Voxel + Normais)...")
-    pipeline = pdal.Pipeline(pipeline_json)
-    pipeline.execute()
+    try:
+        print("[*] Executando: pdal pipeline ...")
+        result = subprocess.run(
+            ["pdal", "pipeline", pipeline_file],
+            capture_output=True, text=True
+        )
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr)
+        if result.returncode != 0:
+            raise RuntimeError(f"pdal pipeline falhou com código {result.returncode}")
+    finally:
+        os.unlink(pipeline_file)
 
-    count = pipeline.arrays[0].shape[0] if pipeline.arrays else 0
-    print(f"[*] PDAL OK → {count:,} pontos exportados para '{output_ply}'")
+    if not os.path.exists(output_ply):
+        raise RuntimeError(f"Arquivo de saída não gerado: {output_ply}")
+
+    size_mb = os.path.getsize(output_ply) / 1024 / 1024
+    print(f"[*] PDAL OK → '{output_ply}' ({size_mb:.1f} MB)")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Passo 1: PDAL — SOR + Normais + Subsampling")
-    parser.add_argument("--input",         required=True,         help="Arquivo .laz de entrada")
-    parser.add_argument("--output",        required=True,         help="Arquivo .ply de saída")
-    parser.add_argument("--sor-neighbors", type=int,   default=20,  help="SOR: número de vizinhos (padrão: 20)")
-    parser.add_argument("--sor-std",       type=float, default=1.5, help="SOR: multiplicador de desvio padrão (padrão: 1.5)")
-    parser.add_argument("--spatial",       type=float, default=0.5, help="Tamanho da célula voxel em metros (padrão: 0.5)")
+    parser = argparse.ArgumentParser(description="Passo 1: PDAL CLI")
+    parser.add_argument("--input",         required=True)
+    parser.add_argument("--output",        required=True)
+    parser.add_argument("--sor-neighbors", type=int,   default=20)
+    parser.add_argument("--sor-std",       type=float, default=1.5)
+    parser.add_argument("--spatial",       type=float, default=0.5)
     args = parser.parse_args()
 
-    run_pdal(
-        input_laz     = args.input,
-        output_ply    = args.output,
-        sor_neighbors = args.sor_neighbors,
-        sor_std       = args.sor_std,
-        spatial       = args.spatial,
-    )
+    run_pdal(args.input, args.output, args.sor_neighbors, args.sor_std, args.spatial)

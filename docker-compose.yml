@@ -6,7 +6,7 @@ services:
     image: pipeline-3d:latest
     container_name: pipeline-3d
     environment:
-      INPUT_FILE: "1-points_RGB.laz"
+      INPUT_FILE: "teste2_RGB.laz"
       TARGET_VERTICES: "80000"
       POISSON_DEPTH: "10"
       SOR_NEIGHBORS: "20"

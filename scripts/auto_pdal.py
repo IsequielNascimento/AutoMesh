@@ -2,14 +2,6 @@
 Passo 1/3 — PDAL CLI
 Gera um pipeline JSON e executa via `pdal pipeline`.
 Sem dependência de binding Python — usa apenas o binário pdal do sistema.
-
-Operações:
-  - readers.las       → lê .laz/.las com LASzip nativo
-  - filters.outlier   → Statistical Outlier Removal (SOR)
-  - filters.range     → remove pontos marcados como noise
-  - filters.voxeldownsize → subsampling espacial
-  - filters.normal    → calcula normais
-  - writers.ply       → exporta PLY com X,Y,Z,RGB,Normais
 """
 
 import subprocess
@@ -17,7 +9,6 @@ import json
 import argparse
 import os
 import tempfile
-
 
 def run_pdal(input_laz, output_ply, sor_neighbors=20, sor_std=1.5, spatial=0.5):
     print(f"\n[1/3] Executando PDAL CLI...")
@@ -52,11 +43,12 @@ def run_pdal(input_laz, output_ply, sor_neighbors=20, sor_std=1.5, spatial=0.5):
                 "type": "filters.normal",
                 "knn": 10
             },
+
             {
                 "type": "writers.ply",
                 "filename": output_ply,
                 "storage_mode": "little endian",
-                "dims": "X,Y,Z,Red,Green,Blue,NormalX,NormalY,NormalZ"
+                "dims": "X=double, Y=double, Z=double, Red=uint8, Green=uint8, Blue=uint8, NormalX=float, NormalY=float, NormalZ=float"
             }
         ]
     }

@@ -1,23 +1,16 @@
-"""
-Passo 2/3 — PyMeshLab
-Screened Poisson Surface Reconstruction + limpeza da malha.
-"""
-
 import pymeshlab
 import argparse
 import resource
 import sys
-
 
 def set_unlimited_stack():
     """Screened Poisson é recursivo e precisa de muito stack. hotfix"""
     try:
         soft, hard = resource.getrlimit(resource.RLIMIT_STACK)
         resource.setrlimit(resource.RLIMIT_STACK, (hard, hard))
-        print(f"[*] Stack: {soft//1024//1024}MB -> {hard//1024//1024}MB", flush=True)
+        print(f"[*] Stack: {soft//1024//1024}MB -> {hard//2048//2048}MB", flush=True)
     except Exception as e:
         print(f"[*] Stack limit inalterado: {e}", flush=True)
-
 
 def run_pymeshlab(input_pc_ply, output_highpoly_ply, poisson_depth=10):
     set_unlimited_stack()
@@ -34,12 +27,20 @@ def run_pymeshlab(input_pc_ply, output_highpoly_ply, poisson_depth=10):
         ms.load_new_mesh(input_pc_ply)
     except Exception as e:
         raise RuntimeError(f"Erro ao carregar {input_pc_ply}: {e}")
+    
+    # tem_cor = ms.current_mesh().has_vertex_color()
+    # print(f"[*] ALERTA DE DIAGNÓSTICO: A nuvem que veio do CloudCompare tem cores reconhecidas? {tem_cor}", flush=True)
+    # if not tem_cor:
+    #     print("[!] ERRO: O CloudCompare exportou a nuvem sem as cores em formato RGB padrão. A transferência de cor será branca!")
+
+
+    ID_NUVEM_ORIGINAL_COM_COR = 0
 
     m_in = ms.current_mesh()
     n_pts = m_in.vertex_number()
     print(f"[*] Entrada: {n_pts:,} vértices, {m_in.face_number():,} faces", flush=True)
 
-    # Screened Poisson com 2.4M pontos causa segfault.
+    # Screened Poisson com 2.4M ou mais pontos causa segfault.
     MAX_POINTS = 500_000
     if n_pts > MAX_POINTS:
         print(f"[*] Nuvem grande ({n_pts:,} pts). Subsampling para {MAX_POINTS:,}...", flush=True)
@@ -65,6 +66,22 @@ def run_pymeshlab(input_pc_ply, output_highpoly_ply, poisson_depth=10):
     if m_out.vertex_number() == 0:
         raise RuntimeError("Poisson não gerou malha.")
 
+    # Pega o ID da malha 3D recém criada pelo Poisson
+    id_malha_poisson = ms.mesh_number() - 1
+
+
+    print("[*] Transferindo cores da nuvem ORIGINAL para a malha Poisson...", flush=True)
+    ms.transfer_attributes_per_vertex(
+        sourcemesh=ID_NUVEM_ORIGINAL_COM_COR,
+        targetmesh=id_malha_poisson,
+        geomtransfer=False,
+        normaltransfer=False,
+        colortransfer=True
+    )
+
+
+    ms.set_current_mesh(id_malha_poisson)
+
     print("[*] Limpando malha...", flush=True)
     ms.meshing_remove_duplicate_faces()
     ms.meshing_remove_duplicate_vertices()
@@ -80,7 +97,6 @@ def run_pymeshlab(input_pc_ply, output_highpoly_ply, poisson_depth=10):
         save_vertex_normal=True,
     )
     print("[*] PyMeshLab finalizado!", flush=True)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

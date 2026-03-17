@@ -2,3 +2,5 @@
 *.laz
 *.ply
 .env
+/node_modules
+/package-lock.json

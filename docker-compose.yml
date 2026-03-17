@@ -1,7 +1,7 @@
 services:
   pipeline-3d:
     build:
-      context: .R
+      context: .
       dockerfile: Dockerfile
     image: pipeline-3d:latest
     container_name: pipeline-3d

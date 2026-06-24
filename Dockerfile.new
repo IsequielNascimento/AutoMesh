@@ -1,0 +1,70 @@
+# --- Phase 1: Builder ---
+FROM ubuntu:22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    wget \
+    unzip \
+    libpng-dev \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# 1. Compile LASlib (LAStools)
+WORKDIR /build-libs
+RUN git clone https://github.com/LAStools/LAStools.git \
+    && cd LAStools/LASlib \
+    && mkdir build && cd build \
+    && cmake .. -DCMAKE_BUILD_TYPE=Release \
+    && make -j$(nproc) \
+    && make install
+
+# 2. Compile PoissonReconstruction (Kazhdan)
+WORKDIR /build-libs
+RUN git clone https://github.com/mkazhdan/PoissonReconstruction.git \
+    && cd PoissonReconstruction \
+    && make -j$(nproc) \
+    && cp Bin/Linux/PoissonReconstruction /usr/local/bin/
+
+# 3. Compile Instant Meshes (Headless)
+WORKDIR /build-libs
+RUN git clone --recursive https://github.com/wjakob/instant-meshes.git \
+    && cd instant-meshes \
+    && mkdir build && cd build \
+    && cmake .. -DINSTANT_MESHES_CLI=ON \
+    && make -j$(nproc) \
+    && cp InstantMeshes /usr/local/bin/
+
+# 4. Compile our custom C++ Pipeline Tools
+WORKDIR /app
+COPY CMakeLists.txt ./
+COPY src/ ./src/
+RUN mkdir build && cd build \
+    && cmake .. -DCMAKE_BUILD_TYPE=Release \
+    && make -j$(nproc)
+
+# --- Phase 2: Runtime ---
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    libpng16-16 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy compiled executables from builder
+COPY --from=builder /usr/local/bin/PoissonReconstruction /usr/local/bin/
+COPY --from=builder /usr/local/bin/InstantMeshes /usr/local/bin/
+COPY --from=builder /app/build/src/automesh-preproc /usr/local/bin/
+COPY --from=builder /app/build/src/automesh-colortransfer /usr/local/bin/
+
+# Script
+WORKDIR /pipeline
+COPY entrypoint.sh.new ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
+
+VOLUME ["/pipeline/input", "/pipeline/output"]
+
+ENTRYPOINT ["/pipeline/entrypoint.sh"]

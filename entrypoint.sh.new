@@ -1,0 +1,50 @@
+#!/bin/bash
+set -e
+
+log() { echo -e "\033[0;34m[INFO]\033[0m $1"; }
+success() { echo -e "\033[0;32m[OK]\033[0m   $1"; }
+error() { echo -e "\033[0;31m[ERRO]\033[0m $1"; exit 1; }
+
+INPUT_DIR="/pipeline/input"
+OUTPUT_DIR="/pipeline/output"
+
+TARGET_VERTICES="${TARGET_VERTICES:-80000}"
+POISSON_DEPTH="${POISSON_DEPTH:-10}"
+SOR_NEIGHBORS="${SOR_NEIGHBORS:-20}"
+SOR_STD="${SOR_STD:-1.5}"
+SPATIAL_SUBSAMPLE="${SPATIAL_SUBSAMPLE:-0.5}"
+
+# Detect input
+if [ -z "$INPUT_FILE" ]; then
+    INPUT_LAZ=$(find "$INPUT_DIR" -maxdepth 1 -name "*.laz" | head -1)
+    [ -z "$INPUT_LAZ" ] && error "Nenhum .laz encontrado em $INPUT_DIR"
+else
+    INPUT_LAZ="${INPUT_DIR}/${INPUT_FILE}"
+    [ ! -f "$INPUT_LAZ" ] && error "Arquivo nao encontrado: $INPUT_LAZ"
+fi
+
+OUTPUT_GLB="${OUTPUT_DIR}/resultado_final.glb"
+
+log "Entrada           : $INPUT_LAZ"
+log "Saida GLB         : $OUTPUT_GLB"
+log "Target vertices   : $TARGET_VERTICES"
+log "Poisson depth     : $POISSON_DEPTH"
+
+# 1. Preprocess
+log "Executando automesh-preproc..."
+automesh-preproc "$INPUT_LAZ" "/tmp/passo1_nuvem.ply" "$SPATIAL_SUBSAMPLE" "$SOR_NEIGHBORS" "$SOR_STD"
+
+# 2. Poisson
+log "Executando PoissonReconstruction..."
+PoissonReconstruction --in "/tmp/passo1_nuvem.ply" --out "/tmp/passo2_highpoly.ply" --depth "$POISSON_DEPTH" --threads $(nproc)
+
+# 3. Retopology
+log "Executando InstantMeshes..."
+InstantMeshes -o "/tmp/passo3_lowpoly.ply" -v "$TARGET_VERTICES" "/tmp/passo2_highpoly.ply"
+
+# 4. Color transfer & GLB export
+log "Executando automesh-colortransfer..."
+automesh-colortransfer "/tmp/passo1_nuvem.ply" "/tmp/passo3_lowpoly.ply" "$OUTPUT_GLB"
+
+success "PIPELINE FINALIZADO COM SUCESSO! Arquivo salvo em: $OUTPUT_GLB"
+ls -lh "$OUTPUT_GLB"

@@ -2,7 +2,7 @@ services:
   pipeline-3d:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.new
     image: pipeline-3d:latest
     container_name: pipeline-3d
     environment:
